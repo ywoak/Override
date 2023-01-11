@@ -1,0 +1,5 @@
+ls
+getfacl
+file
+checksec
+objdump

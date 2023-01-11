@@ -1,0 +1,8 @@
+First some check on the binary to know what we're dealing with
+`getfacl level00` `file level00`
+The binary is a setuid 32bit unprotected binary thats owned by level01
+
+`objdump -M intel -j .text -d level00`
+reverse the binary is enough to understand what it does:
+A simple check of a password stored in clear `5276`
+Which grant us a shell as level01 since the binary was setuid

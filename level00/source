@@ -1,0 +1,13 @@
+#include <stdio.h>
+
+int main() {
+    int a;
+
+    printf("***********************************\n*            -Level00 -           *\n***********************************");
+    scanf("Password:", &a);
+    if (a == 5276)
+        system("/bin/sh");
+    else
+        printf("Invalid Password");
+    return (0);
+}
