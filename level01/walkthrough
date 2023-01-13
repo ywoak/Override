@@ -1,0 +1,9 @@
+Work in progress = Current lead/understanding
+
+0. We have a function that call verify_user_name() which appear to just make a check 
+on a global variable written with fgets to verify if we stored "dat_wil" in it
+1. If thats correct we can proceed in the code to verify_user_pass(pass)
+Which does the same thing with "admin" on pass[16] but without apparent outcome
+2. So we'll probably need to write a shellcode to launch a shell
+Our access point is pass[16] from the main local stack frame so we can overflow from here 
+But since its a fget(100) we cant do more than 100 char of overflow
