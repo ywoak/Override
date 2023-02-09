@@ -2,11 +2,11 @@ char    username[100];
 
 int verify_user_name() {
     printf("verifying username....\n");
-    return (strcmp(username, "dat_wil"));
+    return (strncmp(username, "dat_wil", 7));
 }
 
 int verify_user_pass(char *pass) {
-    return (strcmp("admin", pass));
+    return (strncmp("admin", pass, 5));
 }
 
 int     main() {

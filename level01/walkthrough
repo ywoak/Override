@@ -1,9 +1,23 @@
-Work in progress = Current lead/understanding
+`gdb level01`
+`info func` `info frame` `info var` `disas main` `disas verify_user_name` `disas verify_user_pass`
 
-0. We have a function that call verify_user_name() which appear to just make a check 
-on a global variable written with fgets to verify if we stored "dat_wil" in it
-1. If thats correct we can proceed in the code to verify_user_pass(pass)
-Which does the same thing with "admin" on pass[16] but without apparent outcome
-2. So we'll probably need to write a shellcode to launch a shell
-Our access point is pass[16] from the main local stack frame so we can overflow from here 
-But since its a fget(100) we cant do more than 100 char of overflow
+- We have a global variable which will be used to store an username
+- The main calls two functions that perform user/pass verification 'dat_wil/admin'
+But even with corrects id we just exit, and there is no apparent ret2win nor any protection on the binary
+So we'll need to write a shellcode to overwrite the saved eip before the main call to hijack code flow
+
+Our entrypoint, the buffer we can overflow is the local one saved in the main stackframe
+Filled by the second fgets call, we need to find the padding to eip (the size of the local stack frame - the position of the buffer)
+We also need to add 12 because 3 registers are pushed on the stack at the beginning of main
+We get a padding size of 80, we then modify eip with the address of our shellcode
+
+We could have saved it anywhere we have enough place to write since protection are off for this binary
+Perhaps in the buffer itself while rewriting data, or in an env variable
+The only place impossible was in the same buffer after eip because fgets didnt allow much more room to write here
+But i decided to save it in the first buffer, after dat_wil to comply to the strncmp
+The only trick was to make sure to add 7 to the first buffer address to skip dat_wil and jump straight to our shellcode
+
+```
+scp -P 4242 Ressources/exploit.py level01@127.0.0.1:/dev/shm/exploit.py
+(python /dev/shm/exploit.py; cat) | ./level01
+```
