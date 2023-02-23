@@ -1,0 +1,36 @@
+-- Static analysis --
+
+`aflm` shows us 3 more function but we wont use them and they're pointless for now, so i didnt include them nor here nor in the source
+
+- The main -
+Call a function test with a scanf buffer for a password and 0x1337d00d as a key
+
+- The switch in test -
+`*(diff_args * 4 + 0x80489f0)()` is what i got at first when reversing
+since its jumping on a different address depending on diff_arg, its a switch_case on it
+Another way to help in figuring it out was the visual `x` command to see xref in decrypt, 16 (the rand + 15)
+The address in the code may seem strange but on each its the address stored in each case for 1 < diff_arg < 21
+To verify it hex_dump it, in r2 `? diff_args * 4 + 0x80489f0`, then get the hex response value
+Check whats inside with `px 20 @ res_hex`, reverse the endianness of those address and check where they are in the code
+You can also print them as instruction/as code to see where you land in pseudo seek `pd @ addr` `pi @ addr`
+From what i get with a bigger hexdump of 0x80489f0 all the address between 10-15 point back to the decrypt(randr()) code
+So i already know its either 0-10 addresses or 16-21, and it also validate the xref number we saw in decrypt()
+We can check where the code wanna redirect us by checking the virtual segment addresses `iS`
+after 16 and before 10 its in .text with a plain decrypt call so it seems everything is ok
+
+- The xor mask in decrypt -
+The code is almost obfuscated but it doesnt do much, perhaps its just me..
+Anyway the only relevant part of the whole function is the xor mask block to make the strncmp block pass and give us a suid shell
+the xor is applied with the key param on each char of the crypt_string
+if we manage to find the right key to give us back "Congratulations!", we win
+Since the xor will be applied evenly on each char, one is enough to figure out what key it is
+Lets take the last for example -> 3. Since its already a number, we need it to be equal to !, 0x21 `?a`
+a char is encoded in 1 byte in C so no need to display more
+ 00000011 -> 3
+^00100010 -> 18 => filled last, xor is 1 only when there is an or
+----------
+ 00100001  -> ! => `?b 0x21`
+
+- How to send the key to decrypt -
+Since we want 18 in the decrypt function, we need 18 in the switch/case test()
+So for the diff_args to be 18 with, `?vi 0x1337d00d - 18` = 322424827
