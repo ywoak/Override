@@ -1,0 +1,81 @@
+-- Static analysis --
+`VV` `g main` `pp` for graph summary print for the program code flow
+Clean up a bit asm variables `afv-;afvn` and we have a simple code that fork
+Then one child handler that gives us access to a vulnerable buffer
+When checking permissions `ii` we see that the binary is unprotected, and when checking the stack `iS` we see that its executable
+There is no bound checking on our vulnerable buffer, so we can do a basic ret2shellcode injection attack in our child
+
+And one parent handler that wait on the child termination
+Then check its status LSB ->
+- if its 0x7f `?b 0x7f` its a stop signal
+- if its (&0x7f + 1 >> 1) < 0, then its another signal, most likely sigchild/int...
+
+- Arithmetic vs logical shift -
+The second check was a bit tricky to understand
+I understand that 0x7f is 127 `?b 0x7f`, so add 1 will make it overflow
+but there is logical OR right before, so this wont even be reached if its 127
+I thought then no positive number can be overfload with the +1
++ As soon as we bit shift right our total value, the left most bit will be lost, because thats what shift does right ?
+Well not really, langage agnostic speaking, there is arithmetic shift and logical shift, both are different when handling right shifting
+In signed binary representation as it is now, the LMB is the sign bit
+When it is a logical right shift it behave as expected, but when its an arithmetic right shift the lmb is preserved
+So that begs the question, in C are the shift operand arithmetic or logical, the answer is ->
+When shifting an unsigned value, the >> operator in C is a logical shift. When shifting a signed value, the >> operator is an arithmetic shift.
+So the second handler is used to check negative number, probably the termination signal (!=0) on ls byte of status
+Back to the analysis
+
+- ptrace -
+In both case when the child didnt receive a signal for it to quit, we call ptrace with the child as the tracee
+In ptrace everytime a signal is sent, even if ignored it will stop the execution flow and be notified in parent wait
+Hence the signal check on each loop right before
+Our ptrace call is looping until it returns 0xb
+Notice that all of this work because we're doing a PTRACE_TRACEME in the child process
+So everytime a child emit a signal, the parent does a PTRACE_PEEKUSER, on word at offset 0x2c in the tracee's USER area
+The word is returned as the result of the ptrace() call
+
+- ptrace parent protection -
+If the PTRACE_O_TRACEEXEC option is not in effect, all successful calls to execve(2)  by  the  traced  process
+will  cause  it to be sent a SIGTRAP signal, giving the parent a chance to gain control before the new program
+begins execution
+
+- Process USER area -
+When looking at <sys/user.h>, we see that it holds the registers and other information about the process
+I cant find where the offset is just by looking at the file so ill debug it and follow the parent to see what it returns
+I cant open it for writing locally for some reason so im going to do it on the vm directly
+in r2 to manage processes while debugging i would have `dcf` (debug continue until fork) `dp` (chose process to follow)
+I didnt manage to find out what ptrace was looking for in the child user space with gdb
+After endless web scrolling to read different implementation of sys/user.h and examples on how to use PTRACE_PEEKUSER
+I stumbled upon an article written by `Pradeep Padala`, on how to use it to control the child syscalls
+Apparently its one of the main reason to use this, and he explains in his article that 11 is the syscall execve
+This matches perfectly with our code waiting to see if the return is 0xb
+Now everything is clear, the loop makes sure through the user info space, that on each signal sent by the child
+(including the implicit sigtrap when exec is called in the child as explained above)
+The syscall execv isnt called, before handling back control to the child
+
+- The exploit - 
+So we cant ever use exec() in our child, this makes shellcoding harder
+I have 4 ideas
+1. ret2libc, as we often do in dynamic linked binary, without pic/aslr when nx is on
+2. Make a custom shellcode to just print the .password of level05, since the binary is still suid without shell
+3. Modify the signal handler from the child so that parent doesnt know whats happening
+4. Make a shellcode from another child
+The last 2 ideas seems really bad if even possible, and the first 2 seems equally doable
+
+First ->
+We need to buffer overflow our child to modify the saved eip
+We need the padding, we can generate a De Bruijn pattern with `ragg2 -P 200 -r`
+Then send it to our program, watch where eip is `i r` in gdb or `strace ./level4`
+find the offset with `wop0 0x$eip` in r2, re generate one before if it wasnt attach with `wopD 200`
+The offset is 156
+
+Then ->
+Lets just go with the easy ret2libc attack, open gdb
+`print &system` #once libc table loaded
+`print &exit` #once libc table loaded
+`find &system, +999999999, "/bin/sh"`
+As always if we couldnt find system this way nor with a more precise search in map sections
+We would put in in an env variable to access it via a stack offset, since gets has no bound checking it would have been fine
+
+Now lets create our exploit (Cf Ressources/exploit.py)
+The saved version is the python2 version, as strings are already considered byte info vs python3
+So just scp it in /tmp/exploit.py, python /tmp/exploit.py > /tmp/yes and cat yes - | ./level04
