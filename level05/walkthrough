@@ -1,0 +1,38 @@
+-- Static analysis --
+
+- Information -
+The usuals command to verify everything, `iZ``iI` `iE` `ii` `iS` `afl`
+No protection, few function import, no export, only main function, dynamically linked
+
+- What it does -
+visual graph mode, tiny print representation to understand the code flow at first
+Then comment each block and rename local variables, and fold them one by one
+The code flow is an infinite loop
+It iterate over all char in a buffer to mask them with 0x20 xor, then call printf(buffer) and exit(0)
+
+- Vulnerability -
+The only block out is a printf() on a buffer we control up to 100 byte, so we have a fmt vulnerability
+But the stack frame is too big for a regular overflow
+So now how to exploit, my initial understanding is that we can do almost anything
+-> shellcode injection: I think ? by storing it in an env variable and writing it at oldeip
+-> ret2libc: since there is enough space to write it and the offset are 'static'
+-> GoT overwrite: with the printf we overwrite exit, and right after exit will be called
+The only issue i have with the got overwrite is how to pass parameter to exit since it takes 0
+
+- Decrypt -
+The crypt in main will mask our input with xor 0x20 on each char
+So before sending it once we have our payload we must remenber to prevently xor it
+
+01011001
+00100000 xor 0x20
+--------
+01111001
+00100000 xor 0x20
+--------
+01011001
+
+We can see with a random value, even if it was intuitive, that 2 xor cancel themself
+so we xor 0x20 for caps before sending it so the crypt in the main will give us our original input
+
+- Exploit -
+
