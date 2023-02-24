@@ -12,7 +12,7 @@ void  main(void)
       exit(0);
     }
     if ((buffer[i] >= 'A') && (buffer[i] <= 'Z')) {
-      buffer[i] ^= 0x20;
+      togglecase(buffer[i]); // not a real function in the code -> buffer[i] ^= 0x20
     }
     i++;
   } while (true);

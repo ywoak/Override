@@ -17,7 +17,8 @@ So now how to exploit, my initial understanding is that we can do almost anythin
 -> shellcode injection: I think ? by storing it in an env variable and writing it at oldeip
 -> ret2libc: since there is enough space to write it and the offset are 'static'
 -> GoT overwrite: with the printf we overwrite exit, and right after exit will be called
-The only issue i have with the got overwrite is how to pass parameter to exit since it takes 0
+My issues are with got overwrite how to pass arg to new functions
+and with the other two how to return to it since there is no return call, but one issue at a time
 
 - Decrypt -
 The crypt in main will mask our input with xor 0x20 on each char
@@ -33,6 +34,19 @@ So before sending it once we have our payload we must remenber to prevently xor 
 
 We can see with a random value, even if it was intuitive, that 2 xor cancel themself
 so we xor 0x20 for caps before sending it so the crypt in the main will give us our original input
+While playing with the exploit i quickly notice xor 0x20 is used to make caps lowercase and vice versa
+I researched it a bit and found an article called the oldest ascii tricks in the book
+Basically make a lowercase char uppercase with an and, the opposite with an or, and toggle between them with a xor 0x20
+
+- Exploit ideas -
+I was thinking of going the ret2libc route, but i realized whats following the printf isnt a return but an exit
+perhaps i also have to overwrite the got for exit to a custom memory, to where im gonna store the ret2libc
+Or perhaps i could overwrite it to point to a ret gadget so the ret2libc could work after the pop
+But it all seem tedious, if i have to overwrite the got anyway lets write it to a custom addr, that contains a shellcode
 
 - Exploit -
-
+We need:
+- A shellcode, i will use a standard 23byte long shellcode execve("/bin/sh")
+- The got address of exit, the one to overwrite
+- The address to where the shellcode will be stored
+Im thinking to put the shellcode at the beginning of the buffer
