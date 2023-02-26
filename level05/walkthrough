@@ -49,22 +49,22 @@ We need info, lets get them in gdb this time:
 - A shellcode, i will use a standard 23byte long shellcode execve("/bin/sh")
 - The got address of exit, the one to overwrite `x exit@plt` (jmp addr) `x addr` to verify
 - The address to where the shellcode will be stored
-Im thinking to put the shellcode at the beginning of the buffer -> `p $esp+0x28`
+Im thinking to put the shellcode in the buffer -> `p $esp+0x28`
+After the format string tho, so we'll add nopslide and calculate offset ($esp+0x50)
 
-```
-def pad(s):
-        return s+"X"*(512-len(s))
-
-exploit = ""
-exploit += "AAAABBBBCCCC"
-exploit += "%x "*30
-
-print pad(exploit)
-```
 Fuzzing the printf gives us the relative position of the buffer to printf, its 10
 Since its 32bit memory cell its 40 away from the printf, and considering the buffer lives at esp+0x28 it make perfect sens
 So now we have the relative and absolute vaddr of our buffer, and the remaining info
-
 Lets write all of this at the correct place with fmt exploit now
-Struggled way too much with putting my shellcode in the buffer itself because of stack alignement issue for my shellcode
-so i will put it in an env variable, more traditional way of doing
+
+My payload to overwrite the got with printf did work, im sending it on the right address at the buffer after our printf, but it segv..
+While debugging i found out that my shellcode as a string itself is being modified, because some of the bytes are getting xor 20
+If this was a true togglecase i would xor 20 my shellcode before sending it in my payload, but here its only a lowercase() when its uppercase
+I also tried to add a \0 before, so that the len (scasb) would be tricked, and it seems to work in gdb but not outside so since i cant figure it out
+im gonna put the shellcode in an env variable, and modify my printf to make it write to this address after finding it with the same technique
+At least since there is no size restriction here i can make my nopslide bigger to avoid having to be precise
+
+`python /tmp/exploit.py` with first uncommented redirect /tmp/shellcode;`export SHELLCODE=$(cat /tmp/shellcode)`
+`python /tmp/exploit.py > /tmp/fmt_expl` with second uncommented; `cat /tmp/fmt_expl - | ./level05`
+
+In hindsight the stack approach was way better anyway due to the nop-sled
