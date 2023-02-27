@@ -1,0 +1,26 @@
+-- Running --
+I know this iso is trustable and for practice only
+Still even in a vm without a closed network i dont feel too comfortable running an executable before static analysis
+But for once i will do it, when running the program it ask for credential, first a login
+Then they ask a serial, no apparent fmt, no apparent buffer overflow
+
+-- Static analysis --
+Lets start with some info `ii` `iE` `iS` `iz` `afl` `iI`
+Export we find the usual 3 useless func, and there is an auth function it seems
+Imported we find a printf, and a system, and in string /bin/sh, its probably some form of conditional serial win block
+No sections have write + executable rights
+nx and canary are setup but no pic and partial relro
+`s main; VV`, canary check at the end, right above a conditional win as expected with `system(/bin/sh)`
+The condition is the return of the auth function, and before that is the puts and printf for both login and serial
+The login is stored with a fgets(buff, 0x20, stdin), and the serial with a scanf("%u", buff), the buff is at esp+0x2c
+There is no vuln here, lets check what auth does `N`
+Complex code block flow, there is still the ptrace pid check in one block that i dont understand yet, lets go to tiny graph print mode `nn` and `D` `'` when we want more info, comments
+Lets fill in source.c file now with this, and check our result with asm.pseudo `O` and `pdg @ sym.auth`
+
+-- Code & debugging --
+Its basically a hashing func on each char of the login, that generate a key, if that key match the serial we provide, we win
+The login must be more than 6 byte long, must contain only printable ascii, and a key only work for one login
+The ptrace with PTRACE_TRACEME on itself without parent was to prevent patching the binary with gdb
+So i spent most of the time recreating the hashing function, see ressources folders, then near the end during my debugging with gdb
+I found out i could just patch the binary anyway by modifying the ptrace return, and then having a look at the generated serial instead
+But o well, exploiting without losing time here and there wouldnt be fun i guess, at least both method work for this
