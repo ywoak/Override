@@ -1,0 +1,80 @@
+-- Blackbox testing --
+Its a store service, 3 commands are available
+`store` `read` `quit`
+we can store any number in base 10 at any offset in a storage
+then we can read at any offset of our storage
+offset 0 is readable but not writable
+I didnt manage to overflow anything, however there seems to be some integer overflow somewhere, or perhaps some big number restrictions
+When we store a big number/char in index for example, it says the address is reserved for will
+And when we store a negative value something weird is returned
+Same when we store a negative index
+Chaining command together also doesnt break it, and sending signal or /space/\0/\n doesnt seem to neither
+We can break the program however by specifying a big number at index to read
+Starting at index 670 there is value being seemingly leaked
+And at index 675 we segmentation fault
+The value being leaked are the same between executions
+Ok i wont get more than this like that, lets analyse the binary
+
+-- Static analysis --
+info = ```
+stripped = false, nx = false, pic = false, relro = partial, canary = true
+elf32 bit executable, static = false, linked libraries = libc.so.6
+```
+imports = printf, fflush, getchar, fgets, puts, memset
+exports = clear_stdin, get_unum, prog_timeout, main, read_number, store_number
+
+What kind of attack we perform will depend on if we can leak the canary
+We need to monitor closely :
+- The usage of memset
+- The number usage, since the whole number and index are base10 and seems to be uint32_t with underflow issue usage for index and number
+- What are the value being leaked, starting from those at 670
+
+get_unum and the 3 functions present since 3 levels now have multiple xrefs, so they seem to be called this time
+Lets disassemble and check the pseudo code of all our 6 functions then, and write our source.c to understand what our program is exactly doing behind the scene
+
+
+-- Vulnerability --
+Ok so turns out there is a weird system, most of the buffer are bound check or only retrieved as unsigned int, and we cant use av, env
+So i dont really see a shellcode here even with nx off, however im thinking we can use the read function to leak data starting from int *tab, with a precise offset, for example the stack canary
+But im not even sure i need the stack canary and the read function to leak anything
+Perhaps i can just overwrite the saved eip of main through an offset from tab, with the value of a ret2libc system payload
+Since there is no pic nor aslr we dont even have to leak anything dynamically we can get the address through gdb right away
+Ok lets try this
+
+-- Exploit --
+First step ->
+We need the addresses for our ret2libc payload, again without protection this is easy
+`p &system` `p &exit` `find &system, +999999999, "/bin/sh"`
+exit = 0xf7e5eb70
+system = 0xf7e6aed0
+bin_sh = 0xf7f897ec
+
+Second step ->
+Next we need to figure out how far away is eip from our tab
+I could create a c launcher which would read with every offset possible till we meet the saved eip (again no protection make this reliable)
+But lets be lazier, tab[100] is at esp+0x24, addr = `0xffffd554`, ebp is at `0xffffd718` so saved eip is at ebp+0x4 `0xffffd71c`
+So the padding is `0xffffd71c - 0xffffd554 = 456`, but tab is an int buffer, which mean each index is every 4 byte/1 memory cell, because 32 bit int are written in the full 32 bit, its not like a char buffer
+so `456 / 4 = 114`, and since the buffer start at 0, 114 should actually be the eip, lets try to launch the program and read tab[114]
+There is something at 114, but its an unsigned int ofc, lets convert it `?v 4158936339 = 0xf7e45513` `gdb i f = saved eip 0xf7e45513`
+
+Third step ->
+Ok the theory was correct, and as expected it bypass our canary, then lets modify it with our payload
+We need to write 3 time for each addresses, at tab[114], tab[115] and tab[116]
+We need to convert each address in unsigned int base 10, since the scanf from get_unum() only accept %u `? addr~uint32`
+exit = 4159040368
+system = 4159090384
+bin_sh = 4160264172
+
+Fourth step ->
+When we write it, we get a segfault..
+We can do it no problem with index 115 and 116 tho, but the 114 is protected with the weird condition in store_number
+The condition is `if ((index % 3) && (number >> 0x18 != 0xb7))`
+Aah, i see, index is 114 % 3 == 0, thats why 115 and 116 worked, we need a way to bypass this protection
+I dont know how to patch the binary from outside gcc, and in gcc it wont work because then the system will switch process, and the suid wont work
+Perhaps, since we're dealing with numbers, this is where i get back my overflow/underflow idea
+I see that the input accept negative number, since they are in base 10 %u isnt lost, and convert it as uint
+But since this is for a number below 2M i dont think i can do it with a negative number, because converted in unsigned it will always be 2M+
+We can do an overflow instead, since we're dealing with an int tab instead of a char buffer, every index typed must be multiplied by 4 remenber ?
+So we need to find a wrap around with the multiple of 4, so the int max is int_max / 4 already, uint32_max is representable with 2^32
+Something that when multiplied by 4, has a modulo with uint32_max of 114
+(2^32) / 4 + 114 = `1073741938`, there is 2 more inside uint32_max but this is the first so might as well
