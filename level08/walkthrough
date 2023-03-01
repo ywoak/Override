@@ -1,0 +1,22 @@
+-- Static analysis --
+Its a 64 bit code, after a while i got the hang of what main was doing
+It basically open .log, our file as arg, and backup/ourfile
+and write everything in our file in backup/ourfile
+My only gray area right now is the open flag and mode values, because we only have the mask already OR'd when disassembling
+
+-- Functionnality --
+Lets try the obvious first, store our .pass into backup/.pass
+Ok it doesnt work, lets try with itself, with another file we put in touch, and with something thats not ours like level09/.pass ofc
+It worked on our file that have read writes for others at least, but i cant do it for /tmp/boo for example, i dont get why, anything not in our directory doesnt work
+Since its resolving fd name to open with a path im wondering what will happen on something we can write, so for example /tmp/anything, but it being a symlink, does it still realise i dont have access then ? Lets try
+No it doesnt work, i would like to try that idea again by being able to write to the directory we have the executable, so i linked everything to tmp, even the executable and backups
+Now i can do it for a new file, and copy the one i already have read and write acces to, but still cant do anything with link and when its not in my file
+
+Oh ! It is actually opening the file correctly since the printf error message is the last one
+So the only issue the program has with thing not in the same directory is that it cant create directory in backup
+Thats exactly what was happening with /tmp and why i had to link everything even with backups for it to work on brand new file in tmp where i can write
+But i dont even need the original backups, i just need its name, so i can recreate a backup in which the directory are manually add-able
+
+I also just noticed it worked with my ln -s level08 in tmp, so the suid bit wasnt even needed for this
+So i just needed a file i had rights for in backups (user and group backups + newfile read and write check then was probably the mode mask i couldnt decypher in the code)
+This is the the root of this vulnerability then, with other protections for backups unrelated to my users this would've been impossible
