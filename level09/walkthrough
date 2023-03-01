@@ -1,0 +1,58 @@
+-- Protections --
+```
+RELRO           STACK CANARY      NX            PIE             RPATH      RUNPATH      FILE
+Partial RELRO   No canary found   NX enabled    PIE enabled     No RPATH   No RUNPATH   level09
+```
+
+Ok so aslr is still off since it was system-wide `ldd ./level09` to verify
+And the binary isnt stripped so we'll have all symbols
+But for once we have pie ! Which randomizes some of the bit of the sections of the binary, so the stack the heap and the .text where our code is
+However the offset of a binary never changes, so if at one point we're able, one way or another, to display the dynamic virtual mapped memory of something in our binary
+Then we could substract the static offset of what we displayed to get the dynamic base address of the binary, so any other entry in our binary by adding their static offset
+
+That was the interesting part, then we see the stack isnt executable, so no injection/shellcode
+But partial relocation read only and no canary
+So if we manage to overflow a buffer we dont have to leak a canary first, and we can probably execute some form or rop
+Or overwrite a got entry
+Im not that confident in my rop chaining skill tho even if i understand the principles, so i'd hope more for an ret2libc
+
+Last thing to verify since its the last level is where is the flag, the binary is setuid with `end` permissions `cat /etc/passwd`, so its in `~end/.pass`
+
+-- Blackbox --
+leet-msn v1337
+2 user input retrieved, one ask me my username, one ask me what message to send to @Unix-Dude
+I cant seem to overflow them
+There is no apparent printf vulnerability, perhaps whats sent to unix-dude ? But we cant read it now
+Empty line and spaces doesnt break the program
+
+I wont find much at this stage, lets analyse this
+
+-- Static analysis --
+`afl` Functions and their offset (since we said it might be useful later for pie)
+
+```
+0x00000790 entry0
+
+0x00000aa8 main
+0x000008c0 handle_msg
+0x000009cd set_username
+0x00000932 set_msg
+0x0000088c secret_backdoor
+
+0x00000750 printf
+0x00000770 fgets
+0x00000720 strncpy
+0x00000730 puts
+0x00000740 system
+```
+
+Interesting, there is the set functions and handle_msg with main as we would expect
+But there is also a secret_backdoor, and we see a system in the imported symbols
+Lets check really quick `pdf @ sym.secret_backdoor` -> `fgets(buff, 0x80, stdin); system(buff);`
+Ok so this is clearly a ret2win, but the fact that it doesnt force us into system("/bin/sh")
+tells me that perhaps this is a multi stage exploit, where we first leak some data before using it
+
+-- Source --
+Time to fill source to make sure we dont miss something important about the program execution flow
+`pdf @ func` `pdg @ func` `pxr 20 @ addr` `VV` -> `g offset` `afvn name oldname` `; comment` `zf/f zone/flag management`
+If this isnt enough since its a x64 arch we can debug it locally, and complete what we wanna know with gdb
