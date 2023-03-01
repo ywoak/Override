@@ -28,24 +28,18 @@ Empty line and spaces doesnt break the program
 I wont find much at this stage, lets analyse this
 
 -- Static analysis --
-`afl` Functions and their offset (since we said it might be useful later for pie)
-
+`afl` Functions and their offset
+Since we said it might be useful later for pie !
+Even if imports from libc offset shouldnt be needed since aslr is off
 ```
-0x00000790 entry0
-
 0x00000aa8 main
 0x000008c0 handle_msg
 0x000009cd set_username
 0x00000932 set_msg
 0x0000088c secret_backdoor
-
-0x00000750 printf
-0x00000770 fgets
-0x00000720 strncpy
-0x00000730 puts
+...
 0x00000740 system
 ```
-
 Interesting, there is the set functions and handle_msg with main as we would expect
 But there is also a secret_backdoor, and we see a system in the imported symbols
 Lets check really quick `pdf @ sym.secret_backdoor` -> `fgets(buff, 0x80, stdin); system(buff);`
@@ -56,3 +50,53 @@ tells me that perhaps this is a multi stage exploit, where we first leak some da
 Time to fill source to make sure we dont miss something important about the program execution flow
 `pdf @ func` `pdg @ func` `pxr 20 @ addr` `VV` -> `g offset` `afvn name oldname` `; comment` `zf/f zone/flag management`
 If this isnt enough since its a x64 arch we can debug it locally, and complete what we wanna know with gdb
+
+-- Vulnerability --
+Ok its been a while for me, lets copy some of the comment i made in the code for further clarity and explanation of where is the vulnerability
+main -> nothing to see
+secret_backdoor -> just the win function
+handle_msg ->
+```
+Setup a buffer, send it for username and message
+index 180 we place 140
+```
+set_username ->
+```
+setup a buffer to fgets username input, bound-check, no overflow possible
+then copy the 41st char in buff[140]
+```
+set_msg ->
+```
+Setup a huge buffer with 128 bzero, to fgets message input, bound-check, no overflow possible
+Then strncpy the 140 first in the buffer
+```
+
+When we look at it individually it may not be striking
+But when we look closely at the relationship between a shared memory space and all these function modifying state: (yea i hear you rust devs!)
+- set_username() store stuff from index 140 to 180, 180 included because strncpy 41
+- handle_msg() did store a number at index 180
+- set_msg() decide how much of his huge buffer is strncpy into our buff with whats written at index 180
+
+Is it more evident now ? Its a classic off by one error that will also us in this case to overflow our buffer
+
+-- Exploit --
+1. First we need to figure out how much padding is needed to overflow our buffer until we reach the saved eip
+The buffer is in handle_msg, it was at the top of $rsp already, rbp was 192 lower exactly, so the padding until rbp is just that
+2. Ok so we'll need 192 padding, 8 more to overwrite the base stack pointer, and 8 more to overwrite the saved eip
+Lets overwrite the buff[180] with 208 instead of 140 in set_username by writing 40 char + wrong value
+Problem -> We cant write 208 because its only an off by one error, and 208 as a string is 3 byte
+Solution -> Since the 140 is already written from handle_msg if we just modify the first byte to be 2 it should be 240 (>208 = good)
+Now when set_msg decide how much to strncpy based on buff[180] it should chose to copy 208 byte
+So ofc in set_msg send the full 208 byte
+3. After debugging i realized my logic was good but buff[180] was never in the buffer per say, buff + 180 is just another variable since we used it to stock 140 at first
+This is potentially the case also with buff[140] + 40, but this doesnt matter since even if they're 2 var like in a struct for example they're next to each other with same type, so effectively one in memory
+So same logic but overwrite it as a number in buff + 180 `\xd0`, instead of a string and considering its 1 byte
+And we get a segv ! Perfect
+4. Now lets find out where we want to return, the address of our secret_backdoor()
+From what i understood aslr randomize the binary segment, while pie make the binary only load every var and function in .text relatively
+But since aslr isnt on i dont fully get the effect of the pie here, we can check with `dm` in r2 or `info proc mapping` in gdb, but the main virtual addresses never change
+I thought i would have to do some dynamic_base_addr calc but its gonna be either than planned then
+Well.. Not like i will complain, lets `p &secret_backdoor` = `0x55555555488d` and complete the payload (see exploit.py)
+
+Since this was the last challenge of this project i've done a pwntool script this time, to have something clean from our local dev machine
+Good bye :)
