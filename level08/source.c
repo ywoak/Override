@@ -1,12 +1,12 @@
 // Doesnt seem to be any vuln here
-void log_wrapper(FILE *file, char *message, char *file)
+void log_wrapper(FILE *fd, char *message, char *file)
 {
 	char buff[272];
 
 	strcpy(buff, message); // write the message to log in buff
 	snprintf(&buff[strlen(buff)], 254 - strlen(buff), file); // write at the end of buffer, file (bound check)
 	buff[strcspn(buff, "\n")] = 0; // null terminate the message in buff
-	fprintf(file, "LOG: %s\n", buff); // the whole thing loaded in backups/.log
+	fprintf(fd, "LOG: %s\n", buff); // the whole thing loaded in backups/.log
 	return ;
 }
 
